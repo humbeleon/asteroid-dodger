@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Asteroid Dodger 8-bit</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --neon-blue: #00f3ff;
+            --neon-pink: #ff00ff;
+            --neon-green: #39ff14;
+            --bg-color: #050510;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none; /* Prevenir selección de texto al jugar */
+            -webkit-user-select: none;
+            touch-action: none; /* Prevenir scroll en móviles */
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-color);
+            font-family: 'Press Start 2P', cursive;
+            overflow: hidden;
+            color: white;
+        }
+
+        /* Lienzo del juego con renderizado pixelado para estética 8-bit */
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+        }
+
+        /* UI Overlays */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Deja pasar clicks al joystick si es necesario */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* Botones retro 8-bit */
+        .btn-8bit {
+            background-color: transparent;
+            color: var(--neon-blue);
+            border: 4px solid var(--neon-blue);
+            padding: 15px 20px;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 16px;
+            text-transform: uppercase;
+            cursor: pointer;
+            box-shadow: 4px 4px 0px var(--neon-blue);
+            transition: all 0.1s ease;
+            pointer-events: auto; /* Reactivar eventos para botones */
+            text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.5);
+            background: rgba(0, 243, 255, 0.1);
+        }
+
+        .btn-8bit:active {
+            transform: translate(4px, 4px);
+            box-shadow: 0px 0px 0px var(--neon-blue);
+        }
+
+        .btn-danger {
+            color: var(--neon-pink);
+            border-color: var(--neon-pink);
+            box-shadow: 4px 4px 0px var(--neon-pink);
+            background: rgba(255, 0, 255, 0.1);
+        }
+        
+        .btn-danger:active {
+            box-shadow: 0px 0px 0px var(--neon-pink);
+        }
+
+        /* Controles móviles virtuales */
+        #virtual-controls {
+            position: absolute;
+            bottom: max(20px, env(safe-area-inset-bottom));
+            left: 0;
+            width: 100%;
+            height: 140px;
+            pointer-events: none;
+            display: none;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 max(22px, env(safe-area-inset-left)) 0 max(22px, env(safe-area-inset-right));
+            z-index: 50;
+        }
+
+        /* The ID selector intentionally overrides Tailwind's `hidden` utility. */
+        #virtual-controls.is-visible { display: flex; }
+
+        #joystick-zone {
+            width: clamp(96px, 17vw, 132px);
+            height: clamp(96px, 17vw, 132px);
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            position: relative;
+            pointer-events: auto;
+        }
+
+        #joystick-knob {
+            width: 44%;
+            height: 44%;
+            background: var(--neon-blue);
+            border-radius: 50%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 10px var(--neon-blue);
+            transition: background 0.1s;
+        }
+
+        #shoot-btn-zone {
+            width: clamp(84px, 15vw, 112px);
+            height: clamp(84px, 15vw, 112px);
+            background: rgba(255, 0, 255, 0.2);
+            border: 4px solid var(--neon-pink);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            box-shadow: inset 0 0 15px rgba(255,0,255,0.5), 0 0 15px var(--neon-pink);
+        }
+        #shoot-btn-zone:active {
+            background: rgba(255, 0, 255, 0.5);
+            transform: scale(0.95);
+        }
+
+        @media (orientation: portrait) {
+            #virtual-controls { bottom: max(16px, env(safe-area-inset-bottom)); }
+        }
+
+        @media (pointer: fine) {
+            #virtual-controls { opacity: 0.75; }
+        }
+
+        /* Menús */
+        .menu-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(5, 5, 16, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            pointer-events: auto;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .title-glow {
+            text-shadow: 0 0 10px var(--neon-blue), 0 0 20px var(--neon-blue), 4px 4px 0 #000;
+            text-align: center;
+            line-height: 1.5;
+        }
+        
+        .score-glow {
+            text-shadow: 2px 2px 0px #000, 0 0 5px var(--neon-green);
+        }
+
+        /* Scanlines Effect for retro feeling */
+        .scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 4px, 3px 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Contenedor Principal del Juego -->
+    <canvas id="gameCanvas"></canvas>
+    <div class="scanlines"></div>
+
+    <!-- UI en tiempo real (Puntajes) -->
+    <div id="ui-layer" class="p-4 hidden">
+        <div class="flex justify-between items-start w-full pointer-events-auto">
+            <div class="text-xs md:text-sm">
+                <p class="text-gray-400 mb-1">SCORE</p>
+                <p id="hud-score" class="text-white score-glow text-lg md:text-xl">0</p>
+            </div>
+            <div class="text-xs md:text-sm text-right">
+                <p class="text-gray-400 mb-1">HI-SCORE</p>
+                <p id="hud-highscore" class="text-yellow-400 score-glow text-lg md:text-xl">0</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Controles Virtuales (Joystick y Disparo) -->
+    <div id="virtual-controls" class="flex hidden">
+        <div id="joystick-zone">
+            <div id="joystick-knob"></div>
+        </div>
+        <div id="shoot-btn-zone">
+            <span class="text-white text-xs">FIRE</span>
+        </div>
+    </div>
+
+    <!-- Menú Principal -->
+    <div id="main-menu" class="menu-screen">
+        <h1 class="text-3xl md:text-5xl text-white title-glow mb-10">ASTEROID<br>DODGER</h1>
+        <div class="flex flex-col gap-6">
+            <button id="btn-start" class="btn-8bit w-64">JUGAR</button>
+            <button id="btn-sound" class="btn-8bit w-64 text-sm">SONIDO: ON</button>
+        </div>
+        <div class="mt-12 text-center text-[10px] text-gray-400 leading-relaxed max-w-md px-4">
+            Usa el joystick virtual o teclas (W A S D / Flechas) para moverte.<br><br>
+            Presiona el botón FIRE o ESPACIO para disparar.<br><br>
+            Sobrevive para ganar puntos. ¡Múltiplos de 100 dan bonus visuales!
+        </div>
+    </div>
+
+    <!-- Pantalla de Game Over -->
+    <div id="game-over-screen" class="menu-screen hidden">
+        <h1 class="text-4xl text-red-500 mb-2 title-glow" style="text-shadow: 0 0 10px red, 4px 4px 0 #000;">GAME OVER</h1>
+        <p class="text-xl text-white mb-8">PUNTOS: <span id="final-score" class="text-yellow-400">0</span></p>
+        <button id="btn-restart" class="btn-8bit btn-danger w-64">REINTENTAR</button>
+        <button id="btn-menu" class="btn-8bit w-64 mt-4 text-sm">MENÚ PRINCIPAL</button>
+    </div>
+
+    <script>
+        // --- ESTADO DEL JUEGO ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false }); // Optimización
+        
+        let width, height;
+        let gameState = 'MENU'; // MENU, PLAYING, GAMEOVER
+        let score = 0;
+        let highscore = localStorage.getItem('asteroidHighscore') || 0;
+        let lastMilestone = 0;
+        let soundEnabled = true;
+        let frames = 0;
+        let difficultyMultiplier = 1;
+        let lastTime = performance.now();
+        let scoreTimer = 0; // Para sumar puntos por segundo
+
+        // Referencias UI
+        const uiLayer = document.getElementById('ui-layer');
+        const virtualControls = document.getElementById('virtual-controls');
+        const mainMenu = document.getElementById('main-menu');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const hudScore = document.getElementById('hud-score');
+        const hudHighscore = document.getElementById('hud-highscore');
+        const finalScoreLabel = document.getElementById('final-score');
+        const btnSound = document.getElementById('btn-sound');
+
+        // --- SISTEMA DE AUDIO (Tone.js) ---
+        const synths = {
+            shoot: new Tone.PolySynth(Tone.Synth, {
+                oscillator: { type: 'square' },
+                envelope: { attack: 0.005, decay: 0.08, sustain: 0, release: 0.05 }
+            }).toDestination(),
+            
+            explosion: new Tone.NoiseSynth({
+                noise: { type: 'white' },
+                envelope: { attack: 0.005, decay: 0.25, sustain: 0 }
+            }).toDestination(),
+            
+            powerup: new Tone.PolySynth(Tone.Synth, {
+                oscillator: { type: 'triangle' },
+                envelope: { attack: 0.01, decay: 0.1, sustain: 0.1, release: 0.2 }
+            }).toDestination(),
+            
+            click: new Tone.MembraneSynth({
+                pitchDecay: 0.01,
+                octaves: 1,
+                oscillator: { type: 'square' },
+                envelope: { attack: 0.005, decay: 0.08, sustain: 0, release: 0.05 }
+            }).toDestination()
+        };
+
+        // Bajar volumen general
+        Tone.Destination.volume.value = -10;
+
+        // Registro de tiempos para garantizar que cada evento de sonido tenga un tiempo estrictamente superior al anterior
+        const lastSynthTimes = {};
+
+        function getSafeTime(key, minGap = 0.04) {
+            const now = Tone.now();
+            const lastTime = lastSynthTimes[key] || 0;
+            const safeTime = Math.max(now + 0.005, lastTime + minGap);
+            lastSynthTimes[key] = safeTime;
+            return safeTime;
+        }
+
+        function playSound(type) {
+            if (!soundEnabled) return;
+            try {
+                if (Tone.context.state !== 'running') Tone.context.resume();
+                
+                const t = getSafeTime(type, 0.04);
+                switch(type) {
+                    case 'shoot':
+                        synths.shoot.triggerAttackRelease("E5", "16n", t);
+                        synths.shoot.triggerAttackRelease("B4", "16n", t + 0.03);
+                        break;
+                    case 'explosion':
+                        synths.explosion.triggerAttackRelease("8n", t);
+                        break;
+                    case 'milestone':
+                        // Arpegio feliz estilo 8-bit
+                        synths.powerup.triggerAttackRelease("C4", "16n", t);
+                        synths.powerup.triggerAttackRelease("E4", "16n", t + 0.08);
+                        synths.powerup.triggerAttackRelease("G4", "16n", t + 0.16);
+                        synths.powerup.triggerAttackRelease("C5", "8n", t + 0.24);
+                        break;
+                    case 'click':
+                        synths.click.triggerAttackRelease("C2", "32n", t);
+                        break;
+                }
+            } catch (e) { console.error("Audio error", e); }
+        }
+
+        // --- SISTEMA DE INPUTS ---
+        const keys = { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false, " ": false };
+        let joystickVector = { x: 0, y: 0 };
+        let isShooting = false;
+
+        window.addEventListener('keydown', (e) => { if(keys.hasOwnProperty(e.key)) keys[e.key] = true; });
+        window.addEventListener('keyup', (e) => { if(keys.hasOwnProperty(e.key)) keys[e.key] = false; });
+
+        // Lógica del Joystick Virtual (Pointer Events works with touch, pen and mouse)
+        const joystickZone = document.getElementById('joystick-zone');
+        const joystickKnob = document.getElementById('joystick-knob');
+        let joystickActive = false;
+        let joystickPointerId = null;
+        let joystickCenter = { x: 0, y: 0 };
+        const maxJoystickDist = 40;
+
+        function handleJoystickMove(e) {
+            if (!joystickActive || e.pointerId !== joystickPointerId) return;
+            e.preventDefault();
+            let dx = e.clientX - joystickCenter.x;
+            let dy = e.clientY - joystickCenter.y;
+            let dist = Math.sqrt(dx*dx + dy*dy);
+            
+            if (dist > maxJoystickDist) {
+                dx = (dx / dist) * maxJoystickDist;
+                dy = (dy / dist) * maxJoystickDist;
+            }
+            
+            joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+            
+            // Normalizar vector para la nave (-1 a 1)
+            joystickVector.x = dx / maxJoystickDist;
+            joystickVector.y = dy / maxJoystickDist;
+        }
+
+        function startJoystick(e) {
+            e.preventDefault();
+            joystickActive = true;
+            joystickPointerId = e.pointerId;
+            joystickZone.setPointerCapture(e.pointerId);
+            let rect = joystickZone.getBoundingClientRect();
+            joystickCenter = { x: rect.left + rect.width/2, y: rect.top + rect.height/2 };
+            handleJoystickMove(e);
+        }
+
+        function endJoystick(e) {
+            if (e && e.pointerId !== joystickPointerId) return;
+            joystickActive = false;
+            joystickPointerId = null;
+            joystickVector = { x: 0, y: 0 };
+            joystickKnob.style.transform = `translate(-50%, -50%)`;
+        }
+
+        joystickZone.addEventListener('pointerdown', startJoystick, { passive: false });
+        joystickZone.addEventListener('pointermove', handleJoystickMove, { passive: false });
+        joystickZone.addEventListener('pointerup', endJoystick);
+        joystickZone.addEventListener('pointercancel', endJoystick);
+        joystickZone.addEventListener('lostpointercapture', endJoystick);
+
+        // Botón Disparo Virtual
+        const btnShoot = document.getElementById('shoot-btn-zone');
+        let firePointerId = null;
+        btnShoot.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            firePointerId = e.pointerId;
+            btnShoot.setPointerCapture(e.pointerId);
+            isShooting = true;
+        }, { passive: false });
+        function endFire(e) {
+            if (e && e.pointerId !== firePointerId) return;
+            firePointerId = null;
+            isShooting = false;
+        }
+        btnShoot.addEventListener('pointerup', endFire);
+        btnShoot.addEventListener('pointercancel', endFire);
+        btnShoot.addEventListener('lostpointercapture', endFire);
+        window.addEventListener('blur', () => { endJoystick(); endFire(); });
+
+        // --- CLASES DEL JUEGO ---
+        
+        class Player {
+            constructor() {
+                this.x = width / 2;
+                this.y = height / 2;
+                this.size = 15;
+                this.vx = 0;
+                this.vy = 0;
+                this.speed = 0.5;
+                this.maxSpeed = 5;
+                this.friction = 0.92;
+                this.angle = 0;
+                this.color = '#00f3ff'; // var(--neon-blue)
+                this.cooldown = 0;
+                this.maxCooldown = 12; // Frames entre disparos
+                this.alive = true;
+            }
+
+            update() {
+                if(!this.alive) return;
+
+                // Input de teclado
+                let inputX = 0;
+                let inputY = 0;
+                
+                if (keys.a || keys.ArrowLeft) inputX -= 1;
+                if (keys.d || keys.ArrowRight) inputX += 1;
+                if (keys.w || keys.ArrowUp) inputY -= 1;
+                if (keys.s || keys.ArrowDown) inputY += 1;
+
+                // Combinar con Joystick
+                if (joystickVector.x !== 0 || joystickVector.y !== 0) {
+                    inputX = joystickVector.x;
+                    inputY = joystickVector.y;
+                }
+
+                // Aceleración
+                this.vx += inputX * this.speed;
+                this.vy += inputY * this.speed;
+
+                // Fricción
+                this.vx *= this.friction;
+                this.vy *= this.friction;
+
+                // Limitar velocidad máxima
+                const currentSpeed = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
+                if (currentSpeed > this.maxSpeed) {
+                    this.vx = (this.vx / currentSpeed) * this.maxSpeed;
+                    this.vy = (this.vy / currentSpeed) * this.maxSpeed;
+                }
+
+                // Actualizar posición
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Rotar nave hacia el movimiento
+                if (Math.abs(this.vx) > 0.1 || Math.abs(this.vy) > 0.1) {
+                    this.angle = Math.atan2(this.vy, this.vx);
+                }
+
+                // Limites de pantalla (Wraparound pacman style)
+                if (this.x < 0) this.x = width;
+                if (this.x > width) this.x = 0;
+                if (this.y < 0) this.y = height;
+                if (this.y > height) this.y = 0;
+
+                // Disparo
+                if (this.cooldown > 0) this.cooldown--;
+                if ((keys[" "] || isShooting) && this.cooldown === 0) {
+                    this.shoot();
+                }
+            }
+
+            shoot() {
+                // Si la nave está quieta, dispara hacia arriba por defecto, si no en su ángulo actual
+                let shootAngle = (Math.abs(this.vx) < 0.1 && Math.abs(this.vy) < 0.1 && this.angle === 0) ? -Math.PI/2 : this.angle;
+                
+                projectiles.push(new Projectile(
+                    this.x + Math.cos(shootAngle) * this.size, 
+                    this.y + Math.sin(shootAngle) * this.size, 
+                    shootAngle
+                ));
+                playSound('shoot');
+                this.cooldown = this.maxCooldown;
+            }
+
+            draw() {
+                if(!this.alive) return;
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                
+                // Rotar nave, offset para que apunte hacia adelante
+                ctx.rotate(this.angle);
+
+                // Efecto de propulsor si se está moviendo
+                if (Math.abs(this.vx) > 0.5 || Math.abs(this.vy) > 0.5) {
+                    ctx.beginPath();
+                    ctx.moveTo(-this.size + 4, 0);
+                    ctx.lineTo(-this.size - (Math.random() * 10 + 5), 0);
+                    ctx.strokeStyle = '#ff9900';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+
+                ctx.beginPath();
+                // Triángulo estilo nave espacial
+                ctx.moveTo(this.size, 0); // Punta
+                ctx.lineTo(-this.size, this.size * 0.7); // Esquina inf derecha
+                ctx.lineTo(-this.size * 0.5, 0); // Centro trasero
+                ctx.lineTo(-this.size, -this.size * 0.7); // Esquina sup derecha
+                ctx.closePath();
+                
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                ctx.restore();
+            }
+        }
+
+        class Projectile {
+            constructor(x, y, angle) {
+                this.x = x;
+                this.y = y;
+                this.speed = 10;
+                this.vx = Math.cos(angle) * this.speed;
+                this.vy = Math.sin(angle) * this.speed;
+                this.size = 2;
+                this.life = 100;
+                this.color = '#ff00ff'; // neon pink
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life--;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = this.color;
+                ctx.fillRect(this.x - this.size, this.y - this.size, this.size*2, this.size*2);
+                ctx.restore();
+            }
+        }
+
+        class Asteroid {
+            constructor(x, y, radius, level = 3) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius;
+                this.level = level; // 3 = grande, 2 = medio, 1 = pequeño
+                
+                // Velocidad aleatoria basada en dificultad
+                let angle = Math.random() * Math.PI * 2;
+                let speed = (Math.random() * 1.5 + 0.5) * difficultyMultiplier * (4 - level) * 0.5;
+                
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.vertices = [];
+                this.numVertices = Math.floor(Math.random() * 5) + 7;
+                this.offset = [];
+                this.rotAngle = 0;
+                this.rotSpeed = (Math.random() - 0.5) * 0.05;
+
+                // Generar forma poligonal irregular
+                for (let i = 0; i < this.numVertices; i++) {
+                    this.offset.push((Math.random() * 0.4 + 0.8) * this.radius);
+                }
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.rotAngle += this.rotSpeed;
+
+                // Wraparound
+                if (this.x < -this.radius) this.x = width + this.radius;
+                if (this.x > width + this.radius) this.x = -this.radius;
+                if (this.y < -this.radius) this.y = height + this.radius;
+                if (this.y > height + this.radius) this.y = -this.radius;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotAngle);
+                
+                ctx.beginPath();
+                for (let i = 0; i < this.numVertices; i++) {
+                    let angle = (i / this.numVertices) * Math.PI * 2;
+                    let r = this.offset[i];
+                    let dx = Math.cos(angle) * r;
+                    let dy = Math.sin(angle) * r;
+                    if (i === 0) ctx.moveTo(dx, dy);
+                    else ctx.lineTo(dx, dy);
+                }
+                ctx.closePath();
+                
+                ctx.fillStyle = '#111'; // Fondo oscuro
+                ctx.fill();
+                ctx.strokeStyle = '#39ff14'; // neon green borders
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                ctx.restore();
+            }
+        }
+
+        class Particle {
+            constructor(x, y, color, speedMulti = 1) {
+                this.x = x;
+                this.y = y;
+                let angle = Math.random() * Math.PI * 2;
+                let speed = Math.random() * 3 * speedMulti;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.02 + 0.02;
+                this.color = color;
+                this.size = Math.random() * 3 + 1;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life -= this.decay;
+            }
+            draw() {
+                if(this.life <= 0) return;
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.size, this.size);
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        class FloatingText {
+            constructor(x, y, text, color = '#ff00ff', isBig = false) {
+                this.x = x;
+                this.y = y;
+                this.text = text;
+                this.color = color;
+                this.life = 1.0;
+                this.vy = -1;
+                this.isBig = isBig;
+            }
+            update() {
+                this.y += this.vy;
+                this.life -= 0.015;
+            }
+            draw() {
+                if (this.life <= 0) return;
+                ctx.save();
+                ctx.globalAlpha = this.life;
+                ctx.font = this.isBig ? "24px 'Press Start 2P'" : "12px 'Press Start 2P'";
+                ctx.fillStyle = this.color;
+                ctx.textAlign = "center";
+                ctx.shadowBlur = 4;
+                ctx.shadowColor = "black";
+                ctx.fillText(this.text, this.x, this.y);
+                ctx.restore();
+            }
+        }
+
+        class Star {
+            constructor() {
+                this.reset();
+                this.y = Math.random() * height; // Distribuir inicialmente
+            }
+            reset() {
+                this.x = Math.random() * width;
+                this.y = 0;
+                this.size = Math.random() * 1.5 + 0.5;
+                this.speed = this.size * 0.5;
+                let colors = ['#ffffff', '#aaaaaa', '#555555'];
+                this.color = colors[Math.floor(Math.random() * colors.length)];
+            }
+            update() {
+                this.y += this.speed;
+                if (this.y > height) this.reset();
+            }
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.size, this.size);
+            }
+        }
+
+        // --- VARIABLES DEL MOTOR ---
+        let player;
+        let projectiles = [];
+        let asteroids = [];
+        let particles = [];
+        let floatingTexts = [];
+        let stars = [];
+        let animationId;
+
+        function resize() {
+            const viewport = window.visualViewport;
+            width = Math.round(viewport ? viewport.width : window.innerWidth);
+            height = Math.round(viewport ? viewport.height : window.innerHeight);
+            canvas.width = width;
+            canvas.height = height;
+        }
+        window.addEventListener('resize', resize);
+        window.visualViewport?.addEventListener('resize', resize);
+        resize();
+
+        // Iniciar estrellas (Fondo)
+        for(let i=0; i<100; i++) {
+            stars.push(new Star());
+        }
+
+        // --- LÓGICA PRINCIPAL DEL JUEGO ---
+        
+        function spawnAsteroid() {
+            let x, y;
+            // Aparecer en los bordes
+            if (Math.random() < 0.5) {
+                x = Math.random() < 0.5 ? -30 : width + 30;
+                y = Math.random() * height;
+            } else {
+                x = Math.random() * width;
+                y = Math.random() < 0.5 ? -30 : height + 30;
+            }
+            asteroids.push(new Asteroid(x, y, 30, 3));
+        }
+
+        function createExplosion(x, y, color, amount) {
+            for(let i = 0; i < amount; i++) {
+                particles.push(new Particle(x, y, color));
+            }
+        }
+
+        function checkCollisions() {
+            // Colisiones Proyectil - Asteroide
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                let p = projectiles[i];
+                let hit = false;
+                for (let j = asteroids.length - 1; j >= 0; j--) {
+                    let a = asteroids[j];
+                    let dx = p.x - a.x;
+                    let dy = p.y - a.y;
+                    let dist = Math.sqrt(dx*dx + dy*dy);
+                    
+                    if (dist < a.radius + p.size) {
+                        // Impacto!
+                        hit = true;
+                        playSound('explosion');
+                        createExplosion(a.x, a.y, '#39ff14', 15);
+                        
+                        // Dividir asteroide o destruir
+                        if (a.level > 1) {
+                            asteroids.push(new Asteroid(a.x, a.y, a.radius * 0.6, a.level - 1));
+                            asteroids.push(new Asteroid(a.x, a.y, a.radius * 0.6, a.level - 1));
+                        }
+                        
+                        // Puntos por destruir
+                        let pointsGained = (4 - a.level) * 5;
+                        addScore(pointsGained);
+                        floatingTexts.push(new FloatingText(a.x, a.y, `+${pointsGained}`, '#fff'));
+
+                        asteroids.splice(j, 1);
+                        break; // Proyectil destruido, salir del loop interno
+                    }
+                }
+                if (hit) projectiles.splice(i, 1);
+            }
+
+            // Colisiones Nave - Asteroide
+            if (player.alive) {
+                for (let a of asteroids) {
+                    let dx = player.x - a.x;
+                    let dy = player.y - a.y;
+                    let dist = Math.sqrt(dx*dx + dy*dy);
+                    // Margen de colisión un poco más indulgente
+                    if (dist < a.radius + player.size * 0.6) {
+                        gameOver();
+                        break;
+                    }
+                }
+            }
+        }
+
+        function addScore(amount) {
+            score += amount;
+            hudScore.innerText = score;
+            
+            if (score > highscore) {
+                highscore = score;
+                hudHighscore.innerText = highscore;
+            }
+
+            // Verificar Múltiplos de 100
+            let currentMilestone = Math.floor(score / 100);
+            if (currentMilestone > lastMilestone) {
+                lastMilestone = currentMilestone;
+                playSound('milestone');
+                floatingTexts.push(new FloatingText(width/2, height/2 - 50, `+100 PUNTOS`, '#00f3ff', true));
+                
+                // Efecto visual rápido en el fondo (flash)
+                document.body.style.backgroundColor = "#222";
+                setTimeout(() => document.body.style.backgroundColor = "var(--bg-color)", 100);
+                
+                // Incrementar dificultad
+                difficultyMultiplier += 0.1;
+            }
+        }
+
+        function gameLoop(timestamp) {
+            let dt = timestamp - lastTime;
+            lastTime = timestamp;
+
+            // Limpiar canvas
+            ctx.fillStyle = 'rgba(5, 5, 16, 0.4)'; // Estela retro
+            ctx.fillRect(0, 0, width, height);
+
+            // Actualizar y dibujar estrellas
+            stars.forEach(s => { s.update(); s.draw(); });
+
+            if (gameState === 'PLAYING') {
+                frames++;
+
+                // Lógica de supervivencia: +1 punto por cada 100ms vivos aprox
+                scoreTimer += dt;
+                if(scoreTimer >= 1000) { // Cada 1 segundo sobrevida = 10 puntos (para ritmo de juego)
+                    addScore(10);
+                    scoreTimer = 0;
+                }
+
+                // Generar asteroides periódicamente (más rápido = más dificultad)
+                if (frames % Math.max(30, Math.floor(90 / difficultyMultiplier)) === 0) {
+                    spawnAsteroid();
+                }
+
+                player.update();
+                player.draw();
+
+                projectiles.forEach(p => { p.update(); p.draw(); });
+                // Limpiar proyectiles muertos
+                projectiles = projectiles.filter(p => p.life > 0 && p.x > 0 && p.x < width && p.y > 0 && p.y < height);
+
+                asteroids.forEach(a => { a.update(); a.draw(); });
+
+                checkCollisions();
+            }
+
+            // Actualizar y dibujar partículas/textos independientemente del estado (para que la muerte se anime)
+            particles.forEach(p => { p.update(); p.draw(); });
+            particles = particles.filter(p => p.life > 0);
+
+            floatingTexts.forEach(ft => { ft.update(); ft.draw(); });
+            floatingTexts = floatingTexts.filter(ft => ft.life > 0);
+
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        function startGame() {
+            playSound('click');
+            
+            // Inicializar Audio si es primera vez
+            if(Tone.context.state !== 'running') Tone.context.resume();
+
+            // Resetear Variables
+            score = 0;
+            scoreTimer = 0;
+            lastMilestone = 0;
+            frames = 0;
+            difficultyMultiplier = 1;
+            projectiles = [];
+            asteroids = [];
+            particles = [];
+            floatingTexts = [];
+            
+            hudScore.innerText = score;
+            hudHighscore.innerText = highscore;
+
+            // Crear Jugador
+            player = new Player();
+
+            // Asteroides iniciales lejos del centro
+            for(let i=0; i<4; i++) spawnAsteroid();
+
+            // Cambiar UI
+            mainMenu.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+            uiLayer.classList.remove('hidden');
+            virtualControls.classList.remove('hidden');
+            virtualControls.classList.add('is-visible'); // Mostrar controles táctiles
+            
+            gameState = 'PLAYING';
+            lastTime = performance.now();
+        }
+
+        function gameOver() {
+            player.alive = false;
+            gameState = 'GAMEOVER';
+            playSound('explosion');
+            createExplosion(player.x, player.y, '#00f3ff', 50); // Mega explosión del jugador
+            
+            // Guardar highscore
+            localStorage.setItem('asteroidHighscore', highscore);
+            finalScoreLabel.innerText = score;
+
+            // Transición a UI de Game Over tras la explosión
+            setTimeout(() => {
+                uiLayer.classList.add('hidden');
+                virtualControls.classList.remove('is-visible');
+                virtualControls.classList.add('hidden');
+                gameOverScreen.classList.remove('hidden');
+            }, 1500);
+        }
+
+        function showMenu() {
+            playSound('click');
+            gameOverScreen.classList.add('hidden');
+            mainMenu.classList.remove('hidden');
+            virtualControls.classList.remove('is-visible');
+            
+            // Efecto fondo tranquilo
+            asteroids = [];
+            gameState = 'MENU';
+        }
+
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            btnSound.innerText = `SONIDO: ${soundEnabled ? 'ON' : 'OFF'}`;
+            playSound('click'); // Esto solo sonará si se acaba de encender o antes de apagar
+        }
+
+        // Event Listeners Botones
+        document.getElementById('btn-start').addEventListener('click', startGame);
+        document.getElementById('btn-restart').addEventListener('click', startGame);
+        document.getElementById('btn-menu').addEventListener('click', showMenu);
+        btnSound.addEventListener('click', toggleSound);
+
+        // Actualizar UI inicial
+        hudHighscore.innerText = highscore;
+
+        // Iniciar Bucle Visual
+        requestAnimationFrame(gameLoop);
+
+    </script>
+</body>
+</html>
